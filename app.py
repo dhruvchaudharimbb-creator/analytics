@@ -328,3 +328,412 @@ if y.nunique() >= 2 and len(customer_df) >= 10:
         y_pred,
         labels=range(len(label_encoder.classes_))
     )
+
+else:
+    model = None
+    accuracy = 0
+    report_df = pd.DataFrame()
+    confusion = None
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.markdown("""
+<div class="hero">
+    <div class="hero-title">Customer Sales & Analytics</div>
+    <div class="hero-sub">
+        A practical view of customer purchasing behaviour, sales performance
+        and customer value prediction.
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ============================================================
+# SIDEBAR FILTERS
+# ============================================================
+
+st.sidebar.title("Dashboard Controls")
+st.sidebar.caption("Filter the sales records below.")
+
+region_values = sorted(
+    df["Region"].dropna().astype(str).unique().tolist()
+)
+
+category_values = sorted(
+    df["Category"].dropna().astype(str).unique().tolist()
+)
+
+selected_region = st.sidebar.selectbox(
+    "Region",
+    ["All"] + region_values
+)
+
+selected_category = st.sidebar.selectbox(
+    "Category",
+    ["All"] + category_values
+)
+
+view_df = df.copy()
+
+if selected_region != "All":
+    view_df = view_df[
+        view_df["Region"].astype(str) == selected_region
+    ]
+
+if selected_category != "All":
+    view_df = view_df[
+        view_df["Category"].astype(str) == selected_category
+    ]
+
+
+# ============================================================
+# KPI CARDS
+# ============================================================
+
+total_sales = view_df["Total Price"].sum()
+transaction_count = len(view_df)
+customer_count = view_df["Customer ID"].nunique()
+
+if transaction_count > 0:
+    average_order = view_df["Total Price"].mean()
+else:
+    average_order = 0
+
+k1, k2, k3, k4 = st.columns(4)
+
+metrics = [
+    (k1, "Total Sales", f"₹{total_sales:,.0f}"),
+    (k2, "Customers", f"{customer_count:,}"),
+    (k3, "Transactions", f"{transaction_count:,}"),
+    (k4, "Average Order", f"₹{average_order:,.0f}")
+]
+
+for col, label, value in metrics:
+    col.markdown(
+        f"""
+        <div class="metric-card">
+            <div class="metric-label">{label}</div>
+            <div class="metric-value">{value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# ============================================================
+# SALES OVERVIEW
+# ============================================================
+
+st.subheader("Sales Overview")
+
+left, right = st.columns(2)
+
+# Category sales
+category_sales = (
+    view_df.groupby("Category")["Total Price"]
+    .sum()
+    .sort_values(ascending=False)
+)
+
+with left:
+    st.markdown("**Sales by Category**")
+    if not category_sales.empty:
+        st.bar_chart(category_sales, use_container_width=True)
+    else:
+        st.info("No category data for the selected filters.")
+
+# Region sales
+region_sales = (
+    view_df.groupby("Region")["Total Price"]
+    .sum()
+    .sort_values(ascending=False)
+)
+
+with right:
+    st.markdown("**Sales by Region**")
+    if not region_sales.empty:
+        st.bar_chart(region_sales, use_container_width=True)
+    else:
+        st.info("No region data for the selected filters.")
+
+
+# ============================================================
+# SECOND ANALYTICS ROW
+# ============================================================
+
+left, right = st.columns(2)
+
+# Product sales
+product_sales = (
+    view_df.groupby("Product Name")["Total Price"]
+    .sum()
+    .sort_values(ascending=False)
+    .head(10)
+)
+
+with left:
+    st.markdown("**Top 10 Products by Sales**")
+    if not product_sales.empty:
+        st.bar_chart(product_sales, use_container_width=True)
+    else:
+        st.info("No product data available.")
+
+# Age analysis
+age_sales = (
+    view_df.groupby("Age")["Total Price"]
+    .sum()
+    .sort_index()
+)
+
+with right:
+    st.markdown("**Sales by Customer Age**")
+    if not age_sales.empty:
+        st.line_chart(age_sales, use_container_width=True)
+    else:
+        st.info("No age data available.")
+
+
+# ============================================================
+# CUSTOMER VALUE
+# ============================================================
+
+st.subheader("Customer Value Analysis")
+
+tier_order = ["Value", "Regular", "Premium"]
+
+tier_counts = (
+    customer_df["Sales_Tier"]
+    .value_counts()
+    .reindex(tier_order)
+    .fillna(0)
+    .astype(int)
+)
+
+left, right = st.columns(2)
+
+with left:
+    st.markdown("**Customers by Sales Tier**")
+    st.bar_chart(tier_counts, use_container_width=True)
+
+with right:
+    st.markdown("**Customer Tier Summary**")
+
+    tier_summary = (
+        customer_df.groupby("Sales_Tier")
+        .agg(
+            Customers=("Customer ID", "count"),
+            Total_Sales=("Total_Spend", "sum"),
+            Avg_Spend=("Total_Spend", "mean")
+        )
+        .reindex(tier_order)
+        .fillna(0)
+    )
+
+    tier_summary["Total_Sales"] = tier_summary["Total_Sales"].round(0)
+    tier_summary["Avg_Spend"] = tier_summary["Avg_Spend"].round(0)
+
+    st.dataframe(
+        tier_summary,
+        use_container_width=True
+    )
+
+
+# ============================================================
+# FEATURE IMPORTANCE
+# ============================================================
+
+if model is not None:
+    st.subheader("Prediction Drivers")
+
+    importance_df = pd.DataFrame({
+        "Feature": feature_columns,
+        "Importance": model.feature_importances_
+    }).sort_values(
+        "Importance",
+        ascending=False
+    ).head(8)
+
+    importance_df = importance_df.set_index("Feature")
+
+    st.bar_chart(
+        importance_df["Importance"],
+        use_container_width=True
+    )
+
+    premium_percentage = (
+        customer_df["Sales_Tier"].eq("Premium").mean() * 100
+    )
+
+    st.markdown(
+        f"""
+        <div class="insight">
+            <b>Business insight:</b>
+            Premium customers represent approximately
+            {premium_percentage:.1f}% of the customer base.
+            The prediction model learns from customer behaviour such as
+            order count, average quantity, average product price,
+            shipping behaviour, age and region.
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# ============================================================
+# MODEL PERFORMANCE
+# ============================================================
+
+with st.expander("View Model Performance"):
+
+    if model is None:
+        st.warning("Model performance cannot be calculated for this dataset.")
+    else:
+        a, b = st.columns(2)
+
+        a.metric("Random Forest Accuracy", f"{accuracy:.2%}")
+        b.metric("Customer Records", f"{len(customer_df):,}")
+
+        st.markdown("**Confusion Matrix**")
+
+        confusion_df = pd.DataFrame(
+            confusion,
+            index=[
+                f"Actual: {x}"
+                for x in label_encoder.classes_
+            ],
+            columns=[
+                f"Predicted: {x}"
+                for x in label_encoder.classes_
+            ]
+        )
+
+        st.dataframe(
+            confusion_df,
+            use_container_width=True
+        )
+
+        st.markdown("**Classification Report**")
+        st.dataframe(
+            report_df,
+            use_container_width=True
+        )
+
+
+# ============================================================
+# LIVE CUSTOMER PREDICTION
+# ============================================================
+
+st.subheader("Live Customer Prediction")
+
+if model is None:
+    st.warning("Prediction is unavailable because the model could not be trained.")
+else:
+    selected_customer = st.selectbox(
+        "Select Customer ID",
+        sorted(customer_df["Customer ID"].astype(str).unique())
+    )
+
+    selected_row = customer_df[
+        customer_df["Customer ID"].astype(str) == selected_customer
+    ].iloc[0]
+
+    p1, p2 = st.columns([1, 1.6])
+
+    with p1:
+        st.markdown("**Customer Profile**")
+        st.write(f"**Region:** {selected_row['Region']}")
+        st.write(f"**Age:** {selected_row['Age']:.0f}")
+        st.write(f"**Orders:** {int(selected_row['Orders'])}")
+        st.write(
+            f"**Average Quantity:** "
+            f"{selected_row['Avg_Quantity']:.1f}"
+        )
+        st.write(
+            f"**Average Order Value:** "
+            f"₹{selected_row['Avg_Order_Value']:,.0f}"
+        )
+
+        predict_button = st.button(
+            "Predict Customer Tier",
+            type="primary"
+        )
+
+    if predict_button:
+        input_row = selected_row.drop(
+            labels=[
+                "Customer ID",
+                "Sales_Tier",
+                "Total_Spend"
+            ]
+        ).to_frame().T
+
+        input_encoded = pd.get_dummies(
+            input_row,
+            columns=["Gender", "Region"],
+            drop_first=True
+        )
+
+        input_encoded = input_encoded.reindex(
+            columns=feature_columns,
+            fill_value=0
+        )
+
+        input_encoded = input_encoded.fillna(0)
+
+        prediction = model.predict(input_encoded)[0]
+        probabilities = model.predict_proba(input_encoded)[0]
+
+        predicted_label = label_encoder.inverse_transform(
+            [prediction]
+        )[0]
+
+        confidence = probabilities.max()
+
+        with p2:
+            st.markdown(
+                f"""
+                <div class="prediction-card">
+                    <div class="prediction-label">
+                        Predicted Customer Value
+                    </div>
+                    <div class="prediction-result">
+                        {predicted_label}
+                    </div>
+                    <div class="prediction-confidence">
+                        Confidence: {confidence:.1%}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            probability_df = pd.DataFrame({
+                "Sales Tier": label_encoder.classes_,
+                "Probability": probabilities
+            }).set_index("Sales Tier")
+
+            st.markdown("**Prediction Probability**")
+            st.bar_chart(
+                probability_df["Probability"],
+                use_container_width=True
+            )
+
+
+# ============================================================
+# DATA PREVIEW
+# ============================================================
+
+with st.expander("View Source Sales Data"):
+    st.dataframe(
+        view_df,
+        use_container_width=True,
+        height=350
+    )
+
+st.markdown(
+    '<div class="footer">Customer Sales & Analytics Dashboard</div>',
+    unsafe_allow_html=True
+)
